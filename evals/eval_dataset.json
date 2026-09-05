@@ -1,0 +1,23 @@
+[
+  {
+    "id": "eval_01",
+    "query": "Research NVIDIA AI infrastructure developments and identify key engineering leadership contacts to reach out to",
+    "goal": "Identify AI infrastructure decision makers for enterprise outreach",
+    "expected_type": "sales_outreach",
+    "target_company": "NVIDIA"
+  },
+  {
+    "id": "eval_02",
+    "query": "Analyze the technical architecture, consensus model, and performance of Solana vs Ethereum 2.0",
+    "goal": "Comprehensive blockchain architecture technical report",
+    "expected_type": "general_research",
+    "target_company": "Solana / Ethereum"
+  },
+  {
+    "id": "eval_03",
+    "query": "Investigate Snowflake Data Cloud features and discover VP of Engineering contacts",
+    "goal": "Executive decision-maker contact discovery and technical briefing",
+    "expected_type": "sales_outreach",
+    "target_company": "Snowflake"
+  }
+]
