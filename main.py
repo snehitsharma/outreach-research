@@ -116,9 +116,6 @@ def index():
 
 @app.post("/jobs", response_model=JobResponse, tags=["Swarm Operations"], summary="1. Trigger Autonomous Research Job")
 def trigger_job(request: JobRequest):
-    """
-    Initializes a new research job, spawning parallel researcher nodes, verification, synthesis, and optional email drafting.
-    """
     job_id = str(uuid.uuid4())
     config_dict = {"configurable": {"thread_id": job_id}}
 

@@ -1,6 +1,4 @@
-# ============================================================
-# nodes/planner.py — Telemetry Instrumented & Intent Classification
-# ============================================================
+
 
 from state import State
 from llm_clients import cheap_llm
@@ -12,8 +10,7 @@ from events import events_manager
 class PlannerOutput(BaseModel):
     angles: list[str] = Field(default_factory=list, description="List of 3-6 distinct research angles")
     is_sales_outreach: bool = Field(
-        default=True,
-        description="True if the request seeks recruiter/hiring contact outreach or sales lead drafting. False if it is pure general research/analysis."
+        default=True
     )
 
 
@@ -33,8 +30,8 @@ def planner_node(state: State) -> dict:
         prompt=f"""Given this research request, break it down into
         {config.MIN_ANGLES}-{config.MAX_ANGLES} distinct research angles.
 
-        Also classify whether this request is:
-        - is_sales_outreach = True: if the query asks for recruiter contacts, candidate reach out, hiring manager emails, or sales lead generation.
+        classify whether this request is:
+        - is_sales_outreach = True: if the query aims for outreach, or looks like a sales or any lead generation.
         - is_sales_outreach = False: if it is a standard research/analysis request (e.g. tech architecture, market trends, company overview) with NO email outreach needed.
 
         Request: "{query}"
