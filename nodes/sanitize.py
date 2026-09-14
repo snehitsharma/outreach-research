@@ -1,12 +1,9 @@
-# ============================================================
-# nodes/sanitize.py — Telemetry Instrumentated
-# ============================================================
+
 
 import re
 import unicodedata
 from config import config
 from state import State
-from events import events_manager
 
 INJECTION_PATTERNS = [
     r"ignore (all )?(previous|prior|above) instructions",
@@ -23,9 +20,6 @@ def sanitize_node(state: State) -> dict:
     job_id = state.get("job_id") if isinstance(state, dict) else getattr(state, "job_id", None)
     raw = state.get("raw_query", "") if isinstance(state, dict) else getattr(state, "raw_query", "")
 
-    if job_id:
-        events_manager.emit(job_id, "sanitize", "thinking", "Sanitizing input query and normalizing control characters...")
-
     text = unicodedata.normalize("NFKC", raw)
     text = CONTROL_CHAR_PATTERN.sub("", text)
     text = re.sub(r"<[^>]+>", "", text)
@@ -37,15 +31,6 @@ def sanitize_node(state: State) -> dict:
     injection_flagged = any(
         re.search(pattern, text, re.IGNORECASE) for pattern in INJECTION_PATTERNS
     )
-
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "sanitize",
-            "complete",
-            f"Query sanitized successfully: '{text}'",
-            payload={"was_truncated": was_truncated, "injection_flagged": injection_flagged},
-        )
 
     return {
         "query": text,

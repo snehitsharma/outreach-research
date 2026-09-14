@@ -11,9 +11,9 @@ The system dynamically analyzes query intent, executes parallel web research, en
 - **Dual-Mode Dynamic Workflow Routing**: Automatically distinguishes between *General Technical/Market Research* (terminating at report synthesis) and *Sales Outreach* (enabling contact enrichment & draft approval).
 - **Parallel Swarm Fan-Out**: Dynamic `Send()` dispatch spawns parallel researcher agents for multi-angle web research.
 - **Verified Contact Discovery (Apollo API)**: Enriches decision makers with verified email addresses and executive titles. Strictly returns `N/A` for unverified contacts (no pattern generation).
-- **State Machine & SQLite Persistence**: Built on LangGraph `SqliteSaver` checkpointer (`state.db`), enabling pause, resume, and crash recovery.
+- **LangGraph Workflow & LangSmith Observability**: Runs the state machine with LangGraph and traces graph/model execution through LangSmith.
 - **Executive Prose Report Synthesis**: Generates clean, non-duplicative markdown reports structured into executive narrative paragraphs with clear headings.
-- **Real-Time Telemetry (SSE)**: Streams agent thinking, web search queries, scrapers, and node transitions via Server-Sent Events (`GET /jobs/{job_id}/stream`).
+- **LangSmith Observability**: Traces graph execution and LangChain model calls for each research job.
 - **Automated Evaluation Suite (`evals/`)**: Includes LLM-as-a-Judge evaluation metrics (Answer Relevance, Fact Faithfulness, Apollo Precision) with rate-limit pacing.
 
 ---
@@ -24,7 +24,7 @@ The system dynamically analyzes query intent, executes parallel web research, en
                             ┌──────────────────────────────────┐
                             │    Client / Swagger UI / REST    │
                             └────────────────┬─────────────────┘
-                                             │ HTTP REST / SSE Stream
+                                             │ HTTP REST
                                              ▼
                             ┌──────────────────────────────────┐
                             │        FastAPI API Server        │
@@ -54,12 +54,12 @@ The system dynamically analyzes query intent, executes parallel web research, en
 │                                                                                  ▼          │
 │                                                                             [HITL Wait]     │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-                                             │ Checkpoint & Telemetry
+                                             │ LangSmith Tracing
                             ┌────────────────┴─────────────────┐
                             ▼                                  ▼
                  ┌────────────────────┐             ┌────────────────────┐
-                 │ SQLite Checkpointer│             │  JobEventManager   │
-                 │     (state.db)     │             │    (SSE Stream)    │
+                 │  LangSmith Traces  │             │   Job State API    │
+                 │  (graph + models)  │             │  (in-process only) │
                  └────────────────────┘             └────────────────────┘
 ```
 
@@ -79,7 +79,7 @@ The system dynamically analyzes query intent, executes parallel web research, en
    - Fact Reranking & Synthesis                   - Fact Reranking & Verification
    - Saves Markdown Report to Disk                - Apollo API Contact Enrichment
    - Exit at END                                  - Outreach Email Drafting
-                                                  - Interrupt at HITL Approval
+                                                  - Draft ready for HITL Approval
 ```
 
 ---
@@ -90,12 +90,13 @@ The system dynamically analyzes query intent, executes parallel web research, en
 
 | Module | File | Role & Design |
 | :--- | :--- | :--- |
-| **API Entrypoint** | `main.py` | FastAPI application exposing REST endpoints, SSE streams, and SQLite checkpointer. |
+| **API Entrypoint** | `main.py` | FastAPI application bootstrap, graph construction, and router registration. |
+| **API Routes** | `routers/` | FastAPI route modules for system health, job operations, report downloads, and HITL approval. |
+| **Dependencies** | `dependencies.py` | FastAPI dependency providers for shared application resources such as the graph. |
 | **Graph Definition** | `graph.py` | Compiles `StateGraph`, dynamic fan-out edges (`Send`), and conditional exit edges (`route_after_synthesizer`). |
 | **Swarm State** | `state.py` | Global `State` model backed by Pydantic and annotated reducers (`operator.add`). |
-| **LLM Clients** | `llm_clients.py` | 3-tier Gemini client wrapper (`cheap_llm`, `mid_llm`, `strong_llm`) with exponential backoff for rate limits. |
+| **LLM Clients** | `llm_clients.py` | 3-tier LangChain Gemini client wrapper (`cheap_llm`, `mid_llm`, `strong_llm`) with structured Pydantic output and rate-limit retries. |
 | **Tools & APIs** | `tools.py` | Web search (Tavily), Web Scraper (Tavily Extract / BeautifulSoup), Contact Lookup (Apollo API). |
-| **Telemetry Manager**| `events.py` | In-memory thread-safe `asyncio.Queue` event manager for real-time SSE telemetry logging. |
 | **Swarm Nodes** | `nodes/` | Specialized node functions (`planner`, `researcher`, `verifier`, `synthesizer`, `outreach_drafter`, `hitl`). |
 | **Evaluation Suite**| `evals/` | Benchmark dataset, LLM-as-a-Judge metrics, and rate-limit safe CLI evaluation runner. |
 
@@ -151,10 +152,9 @@ A representative executive prose report generated by the swarm is available in t
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `POST` | `/jobs` | **1. Trigger Autonomous Research Job** (Spawns research swarm) |
-| `GET` | `/jobs/{job_id}/stream` | **2. Live SSE Telemetry Log Stream** (Real-time agent thoughts & tool logs) |
-| `GET` | `/jobs/{job_id}` | **3. Get Job Results & Executive Report** (Polls job state & reports) |
-| `GET` | `/jobs/{job_id}/report/download` | **4. Download Research Report File (.md)** (Downloads markdown file) |
-| `POST` | `/jobs/{job_id}/approve` | **5. Approve or Discard Email Draft** (HITL human approval endpoint) |
+| `GET` | `/jobs/{job_id}` | **2. Get Job Results & Executive Report** (Polls job state & reports) |
+| `GET` | `/jobs/{job_id}/report/download` | **3. Download Research Report File (.md)** (Downloads markdown file) |
+| `POST` | `/jobs/{job_id}/approve` | **4. Approve or Discard Email Draft** (HITL human approval endpoint) |
 
 ---
 
@@ -176,6 +176,8 @@ cp .env.example .env
 ```bash
 pip install -r requirements.txt
 ```
+
+LangSmith tracing is enabled by setting `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, and `LANGSMITH_PROJECT` in `.env`. LangSmith provides observability, while active job state is retained only in the running API process because this deployment does not use a checkpointer.
 
 ### 4. Running the API Server
 ```bash

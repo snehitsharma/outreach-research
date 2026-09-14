@@ -1,14 +1,12 @@
 # Sales Outreach Research Graph — Dependencies
 langgraph>=1.2.0
-langgraph-checkpoint-sqlite>=3.0.0
-aiosqlite>=0.20.0
+langchain-google-genai>=2.1.0
 pydantic>=2.7.0
 pydantic-settings>=2.2.0
 fastapi>=0.110.0
 uvicorn>=0.28.0
 psycopg-pool>=3.2.0
 psycopg2-binary>=2.9.9
-google-generativeai>=0.8.0
 tavily-python>=0.3.0
 sentence-transformers>=3.0.0
 beautifulsoup4>=4.12.0

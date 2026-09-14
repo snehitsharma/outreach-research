@@ -9,7 +9,6 @@ from tools import search_tool, scrape_tool
 from pydantic import BaseModel, Field
 from typing import Literal, Any
 import uuid
-from events import events_manager
 
 
 class ResearcherDecision(BaseModel):
@@ -47,15 +46,6 @@ def researcher_node(input: dict) -> dict:
     job_id = input.get("job_id")
     researcher_id = f"r_{uuid.uuid4().hex[:6]}"
 
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "researcher",
-            "thinking",
-            f"Researcher [{researcher_id}] assigned angle: '{angle}'",
-            payload={"researcher_id": researcher_id, "angle": angle},
-        )
-
     history = []
     action_count = 0
     new_findings = []
@@ -83,20 +73,13 @@ def researcher_node(input: dict) -> dict:
         query_or_url = getattr(decision, "query_or_url", None) or ""
 
         if act == "stop":
-            if job_id:
-                events_manager.emit(
-                    job_id,
-                    "researcher",
-                    "thinking",
-                    f"Researcher [{researcher_id}] concluded research for angle: '{angle}'",
-                )
             break
 
         content_to_extract = ""
         source_link = query_or_url
 
         if act == "search" and query_or_url:
-            search_results = search_tool.run(query_or_url, job_id=job_id)
+            search_results = search_tool.run(query_or_url)
             history.append({"action": "search", "input": query_or_url, "result": search_results})
 
             if search_results and isinstance(search_results, list):
@@ -105,7 +88,7 @@ def researcher_node(input: dict) -> dict:
                 source_link = search_results[0].get("url", query_or_url) if search_results else query_or_url
 
         elif act == "scrape" and query_or_url:
-            scraped_text = scrape_tool.run(query_or_url, job_id=job_id)
+            scraped_text = scrape_tool.run(query_or_url)
             history.append({"action": "scrape", "input": query_or_url, "result": scraped_text})
             content_to_extract = str(scraped_text)[:3500]
             source_link = query_or_url
@@ -155,15 +138,6 @@ def researcher_node(input: dict) -> dict:
                             phone=None,
                         )
                     )
-
-            if job_id and (raw_findings or raw_contacts):
-                events_manager.emit(
-                    job_id,
-                    "researcher",
-                    "complete",
-                    f"Researcher [{researcher_id}] extracted {len(raw_findings)} findings & {len(raw_contacts)} decision-maker contacts from {source_link}",
-                    payload={"findings_count": len(raw_findings), "contacts_count": len(raw_contacts)},
-                )
 
         action_count += 1
 

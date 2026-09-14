@@ -16,19 +16,13 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 
 class GmailMCPClient:
-    """
-    Single source of truth for all Gmail MCP / API calls.
-    Handles draft creation, sending emails, and tracking recipient replies via
-    thread_id, message_id, and to_email. Automatically loads OAuth credentials from
-    credentials.json.
-    """
+    
 
     def __init__(self):
         self._mock_threads: dict[str, list[dict]] = {}
         self._service = None
 
     def _get_service(self):
-        """Builds and caches authenticated Gmail API service if credentials.json is present."""
         if self._service:
             return self._service
 

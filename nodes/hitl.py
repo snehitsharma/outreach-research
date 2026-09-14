@@ -7,7 +7,7 @@ from gmail_mcp_client import gmail_client
 
 def get_pending_review(state) -> dict | None:
     """Returns the draft item currently awaiting human review from state."""
-    values = getattr(state, "values", None) or state
+    values = state if isinstance(state, dict) else getattr(state, "values", None) or state
     drafts = values.get("drafts") if isinstance(values, dict) else getattr(values, "drafts", {})
 
     for kind in ("follow_up", "outreach"):
@@ -36,7 +36,7 @@ def get_human_review_payload(state) -> dict | None:
     - Target contact recommendation + explicit reason (who & why)
     - Proposed email draft
     """
-    values = getattr(state, "values", None) or state
+    values = state if isinstance(state, dict) else getattr(state, "values", None) or state
     if isinstance(values, dict):
         report = values.get("report")
         contacts = values.get("contacts") or []

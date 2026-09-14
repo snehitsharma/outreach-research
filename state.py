@@ -36,3 +36,11 @@ class State(BaseModel):
 
     hitl_approved: bool | None = None
     follow_up_at: datetime | None = None
+
+    @classmethod
+    def initial(cls, job_id: str, raw_query: str, goal: str | None = None) -> dict:
+        return cls(
+            job_id=job_id,
+            raw_query=raw_query,
+            goal=goal,
+        ).model_dump()

@@ -2,7 +2,6 @@
 # graph.py — LangGraph Pipeline Architecture with Telemetry
 # ============================================================
 
-from typing import Any
 from langgraph.graph import StateGraph, END
 from langgraph.types import Send
 
@@ -20,8 +19,8 @@ from nodes.synthesizer import synthesizer_node
 from nodes.outreach_drafter import outreach_drafter_node
 
 
-def build_graph(checkpointer: Any = None) -> Any:
-    """Builds and compiles the Sales Outreach Research Graph."""
+def build_graph():
+   
     graph = StateGraph(State)
 
     # Entry node
@@ -91,7 +90,7 @@ def build_graph(checkpointer: Any = None) -> Any:
 
     graph.add_conditional_edges("synthesizer", route_after_synthesizer, ["outreach_drafter", END])
 
-    # Outreach draft & HITL interrupt
+    # Outreach draft & HITL review state
     graph.add_node("outreach_drafter", outreach_drafter_node)
 
     def route_after_outreach(state: State) -> str:
@@ -103,4 +102,4 @@ def build_graph(checkpointer: Any = None) -> Any:
     graph.add_node("hitl_wait", lambda state: state)
     graph.add_conditional_edges("hitl_wait", lambda state: END, [END])
 
-    return graph.compile(checkpointer=checkpointer, interrupt_before=["hitl_wait"])
+    return graph.compile()

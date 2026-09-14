@@ -12,8 +12,8 @@ import uuid
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from graph import build_graph
-from langgraph.checkpoint.memory import MemorySaver
 from evals.metrics import evaluate_relevance, evaluate_faithfulness
+from state import State
 
 
 def run_evaluations():
@@ -29,31 +29,26 @@ def run_evaluations():
     with open(dataset_path, "r", encoding="utf-8") as f:
         dataset = json.load(f)
 
-    checkpointer = MemorySaver()
-    graph = build_graph(checkpointer)
+    graph = build_graph()
 
     results = []
 
     for idx, test_case in enumerate(dataset, 1):
         job_id = f"eval_job_{uuid.uuid4().hex[:6]}"
-        config_dict = {"configurable": {"thread_id": job_id}}
-
         print(f"\n[{idx}/{len(dataset)}] Test Case: {test_case['id']} | Query: '{test_case['query'][:50]}...'")
 
-        initial_state = {
-            "job_id": job_id,
-            "raw_query": test_case["query"],
-            "query": "",
-            "goal": test_case.get("goal"),
-            "guardrail_passed": False,
-        }
+        initial_state = State.initial(
+            job_id=job_id,
+            raw_query=test_case["query"],
+            goal=test_case.get("goal"),
+        )
 
         start_time = time.time()
-        graph.invoke(initial_state, config=config_dict)
+        values = graph.invoke(
+            initial_state,
+            config={"run_name": "evaluation_job", "metadata": {"job_id": job_id}},
+        )
         execution_time = round(time.time() - start_time, 2)
-
-        state = graph.get_state(config_dict)
-        values = state.values
 
         report_data = values.get("report")
         report_summary = ""

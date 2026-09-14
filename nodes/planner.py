@@ -4,7 +4,6 @@ from state import State
 from llm_clients import cheap_llm
 from pydantic import BaseModel, Field
 from config import config
-from events import events_manager
 
 
 class PlannerOutput(BaseModel):
@@ -18,9 +17,6 @@ def planner_node(state: State) -> dict:
     job_id = state.get("job_id") if isinstance(state, dict) else getattr(state, "job_id", None)
     query = state.get("query", "") if isinstance(state, dict) else getattr(state, "query", "")
     goal = state.get("goal") if isinstance(state, dict) else getattr(state, "goal", None)
-
-    if job_id:
-        events_manager.emit(job_id, "planner", "thinking", f"Planning parallel research angles & classifying intent for query: '{query}'")
 
     planner_list = state.get("planner_list") if isinstance(state, dict) else getattr(state, "planner_list", [])
     if planner_list:
@@ -51,14 +47,5 @@ def planner_node(state: State) -> dict:
         ]
 
     angles = angles[:config.MAX_ANGLES]
-
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "planner",
-            "complete",
-            f"Planner classified workflow as {'SALES OUTREACH (Outreach Draft Enabled)' if is_sales else 'GENERAL RESEARCH (Report Only)'} and generated {len(angles)} angles.",
-            payload={"angles": angles, "is_sales_outreach": is_sales},
-        )
 
     return {"planner_list": angles, "is_sales_outreach": is_sales}

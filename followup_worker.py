@@ -1,16 +1,11 @@
 # ============================================================
-# followup_worker.py — Scheduled Follow-Up Daemon Worker (SQLite)
+# followup_worker.py — Scheduled Follow-Up Daemon Worker
 # ============================================================
 
-import os
-import sqlite3
 import time
 import argparse
 from datetime import datetime, timezone
 
-from langgraph.checkpoint.sqlite import SqliteSaver  # type: ignore
-
-from graph import build_graph
 from nodes.outreach_drafter import draft_followup
 from gmail_mcp_client import gmail_client
 
@@ -49,23 +44,10 @@ def check_followup_stop(values: dict) -> bool:
     return _reply_received(values)
 
 
-def process_due_followups(conn, checkpointer, graph):
-    """Queries persistent checkpoints for jobs where follow_up_at is due."""
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT DISTINCT thread_id FROM checkpoints;")
-        rows = cursor.fetchall()
-    except Exception:
-        rows = []
-
+def process_due_followups(states: dict[str, dict]):
+    """Processes follow-ups in the current process-local job registry."""
     now = datetime.now(timezone.utc)
-    for (thread_id,) in rows:
-        config = {"configurable": {"thread_id": thread_id}}
-        snapshot = graph.get_state(config)
-        if not snapshot or not snapshot.values:
-            continue
-
-        values = snapshot.values
+    for thread_id, values in states.items():
         follow_up_at = values.get("follow_up_at")
         if not follow_up_at:
             continue
@@ -79,25 +61,20 @@ def process_due_followups(conn, checkpointer, graph):
         if follow_up_at <= now:
             if _reply_received(values):
                 print(f"[Worker] Thread {thread_id}: Recipient replied! Stopping follow-up sequence.")
-                graph.update_state(config, {"follow_up_at": None, "followup_stopped_reason": "recipient_replied"})
+                values.update({"follow_up_at": None, "followup_stopped_reason": "recipient_replied"})
             else:
                 print(f"[Worker] Thread {thread_id}: Follow-up due. Creating follow-up draft.")
                 res = draft_followup(values)
-                graph.update_state(config, {"drafts": res.get("drafts"), "follow_up_at": None})
+                values.update({"drafts": res.get("drafts"), "follow_up_at": None})
 
 
 def run_daemon(poll_interval: int = 60):
-    DB_FILE = os.environ.get("SQLITE_DB_PATH", "state.db")
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
-    checkpointer.setup()
+    from routers.jobs import job_states
 
-    graph = build_graph(checkpointer)
-
-    print(f"[FollowupWorker] Starting daemon using SQLite ('{DB_FILE}') (polling every {poll_interval}s)...")
+    print("[FollowupWorker] Starting process-local follow-up worker...")
     while True:
         try:
-            process_due_followups(conn, checkpointer, graph)
+            process_due_followups(job_states)
         except Exception as e:
             print(f"[FollowupWorker] Error during poll cycle: {e}")
         time.sleep(poll_interval)
@@ -108,13 +85,8 @@ if __name__ == "__main__":
     parser.add_argument("--once", action="store_true", help="Run a single poll pass and exit")
     args = parser.parse_args()
 
-    DB_FILE = os.environ.get("SQLITE_DB_PATH", "state.db")
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
-    checkpointer.setup()
-    graph = build_graph(checkpointer)
-
     if args.once:
-        process_due_followups(conn, checkpointer, graph)
+        from routers.jobs import job_states
+        process_due_followups(job_states)
     else:
         run_daemon()

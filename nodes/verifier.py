@@ -8,7 +8,6 @@ from llm_clients import strong_llm
 from tools import apollo_tool
 from pydantic import BaseModel, Field
 from typing import Literal
-from events import events_manager
 
 
 class ClaimVerdict(BaseModel):
@@ -29,15 +28,6 @@ def verifier_node(state: State) -> dict:
     contacts = (state.get("contacts") or []) if isinstance(state, dict) else (getattr(state, "contacts", []) or [])
     is_sales = state.get("is_sales_outreach", True) if isinstance(state, dict) else getattr(state, "is_sales_outreach", True)
 
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "verifier",
-            "thinking",
-            f"Verifier checking {len(findings)} research findings and {len(contacts)} contacts...",
-            payload={"findings_count": len(findings), "contacts_count": len(contacts)},
-        )
-
     # Enrich contacts via Apollo API if sales outreach is active (deduplicated by name)
     if is_sales and contacts:
         enriched_contacts = []
@@ -53,7 +43,7 @@ def verifier_node(state: State) -> dict:
 
             c_email = getattr(c, "email", None) or (c.get("email") if isinstance(c, dict) else None)
             if not c_email or c_email == "N/A":
-                apollo_res = apollo_tool.run(name=c_name, company="Google", job_id=job_id)
+                apollo_res = apollo_tool.run(name=c_name, company="Google")
                 if isinstance(c, dict):
                     c["email"] = apollo_res.get("email")
                     if not c.get("role"):
@@ -66,8 +56,6 @@ def verifier_node(state: State) -> dict:
         contacts = enriched_contacts
 
     if not findings and not contacts:
-        if job_id:
-            events_manager.emit(job_id, "verifier", "warning", "No findings or contacts surfaced; flagging coverage gap.")
         return {
             "findings": [],
             "penalties": [Penalty(
@@ -149,15 +137,6 @@ def verifier_node(state: State) -> dict:
             snippet="",
             rejection_reason=RejectionReason.MISSING_EXPECTED,
         ))
-
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "verifier",
-            "complete",
-            f"Verifier verified {len(updated_findings)} findings; flagged {len(new_penalties)} penalties.",
-            payload={"verified_count": len(updated_findings), "penalties_count": len(new_penalties)},
-        )
 
     return {"findings": updated_findings, "contacts": contacts, "penalties": new_penalties}
 

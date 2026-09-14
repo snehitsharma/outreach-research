@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from state import State
 from llm_clients import mid_llm
 from gmail_mcp_client import gmail_client
-from events import events_manager
 
 
 class OutreachDraft(BaseModel):
@@ -20,12 +19,7 @@ def outreach_drafter_node(state: State) -> dict:
     report = state.get("report") if isinstance(state, dict) else getattr(state, "report", None)
     contacts = (state.get("contacts") or []) if isinstance(state, dict) else (getattr(state, "contacts", []) or [])
 
-    if job_id:
-        events_manager.emit(job_id, "outreach_drafter", "thinking", "Drafting candidate outreach email...")
-
     if not report or not contacts:
-        if job_id:
-            events_manager.emit(job_id, "outreach_drafter", "complete", "No target contacts surfaced; skipped draft generation.")
         return {"drafts": {"outreach": []}}
 
     target_contact = getattr(report, "recommended_contact", None) or contacts[0]
@@ -51,15 +45,6 @@ def outreach_drafter_node(state: State) -> dict:
             gmail_meta = gmail_client.create_draft(to_email=to_email, subject=subject, body=body)
         except Exception:
             gmail_meta = {}
-
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "outreach_drafter",
-            "complete",
-            f"Drafted email for {target_contact.name} ({to_email or 'no email'}). Awaiting HITL human review.",
-            payload={"recipient": target_contact.name, "to_email": to_email, "subject": subject},
-        )
 
     return {
         "drafts": {
@@ -106,15 +91,6 @@ def draft_followup(state: State) -> dict:
             gmail_meta = gmail_client.create_draft(to_email=to_email, subject=subject, body=body)
         except Exception:
             gmail_meta = {}
-
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "outreach_drafter",
-            "complete",
-            f"Generated follow-up draft for {to_email or 'recipient'}.",
-            payload={"to_email": to_email, "subject": subject},
-        )
 
     return {
         "drafts": {

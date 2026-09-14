@@ -10,7 +10,6 @@ from state import State
 from schemas import Report
 from llm_clients import mid_llm
 from pydantic import BaseModel, Field
-from events import events_manager
 
 
 class ThemeNarrative(BaseModel):
@@ -111,15 +110,6 @@ def synthesizer_node(state: State) -> dict:
     unique_reranked = _deduplicate_findings(reranked)
     unique_contacts = _deduplicate_contacts(contacts)
 
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "synthesizer",
-            "thinking",
-            f"Synthesizer compiling executive prose report from {len(unique_reranked)} unique findings...",
-            payload={"reranked_count": len(unique_reranked)},
-        )
-
     if not unique_reranked:
         empty_report = Report(
             summary="No verified findings were available for this request.",
@@ -183,15 +173,6 @@ def synthesizer_node(state: State) -> dict:
     )
 
     filepath = _save_report_to_disk(report, query, sections)
-
-    if job_id:
-        events_manager.emit(
-            job_id,
-            "synthesizer",
-            "complete",
-            f"Research brief compiled and saved to disk at {filepath}",
-            payload={"summary": summary, "filepath": filepath},
-        )
 
     return {"report": report}
 
