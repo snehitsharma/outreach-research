@@ -7,12 +7,12 @@ from config import config
 
 def reranker_node(state: State) -> dict:
     # 1. Start with everything verifier passed clean
-    surviving: list[Finding] = list(getattr(state, "findings", []) or [])  # already filtered to VERIFIED in verifier_node
+    surviving: list[Finding] = list(state.verified_findings or [])  
 
     # 2. Add back whatever resolver decided to keep/reprioritize
-    for penalty in getattr(state, "resolved_penalties", []) or []:
+    for penalty in state.resolved_penalties or []:
         if penalty.resolver_decision == ResolverDecision.DISCARD:
-            continue  # dropped for good
+            continue  
 
         f = Finding(
             id=penalty.id,
@@ -38,10 +38,10 @@ def reranker_node(state: State) -> dict:
         scores = [1.0] * len(surviving)
 
     # 4. Reprioritized items get a score penalty — they survived, but with less trust
-    resolved_penalties = getattr(state, "resolved_penalties", []) or []
+    
     reprioritized_ids = {
-        p.id for p in resolved_penalties
-        if getattr(p, "resolver_decision", None) == ResolverDecision.REPRIORITIZE
+        p.id for p in state.resolved_penalties or []
+        if p.resolver_decision == ResolverDecision.REPRIORITIZE
     }
 
     scored = [

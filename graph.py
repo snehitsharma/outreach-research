@@ -80,8 +80,7 @@ def build_graph():
 
     # Dynamic route: General Research ends at Synthesizer; Sales Outreach proceeds to Outreach Drafter
     def route_after_synthesizer(state: State) -> str:
-        is_sales = state.get("is_sales_outreach", True) if isinstance(state, dict) else getattr(state, "is_sales_outreach", True)
-        return "outreach_drafter" if is_sales else END
+        return "outreach_drafter" if state.is_sales_outreach else END
 
     graph.add_conditional_edges("synthesizer", route_after_synthesizer, ["outreach_drafter", END])
 

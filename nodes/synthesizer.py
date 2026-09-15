@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from state import State
 from schemas import Report
 from llm_clients import mid_llm
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, config
 
 
 class ThemeNarrative(BaseModel):
@@ -100,11 +100,10 @@ def _save_report_to_disk(report: Report, query: str, sections: list[ThemeNarrati
 
 
 def synthesizer_node(state: State) -> dict:
-    job_id = state.get("job_id") if isinstance(state, dict) else getattr(state, "job_id", None)
-    reranked = (state.get("reranked") or []) if isinstance(state, dict) else (getattr(state, "reranked", []) or [])
-    contacts = (state.get("contacts") or []) if isinstance(state, dict) else (getattr(state, "contacts", []) or [])
-    query = state.get("query", "Research Query") if isinstance(state, dict) else (getattr(state, "query", "") or "Research Query")
-    goal = state.get("goal") if isinstance(state, dict) else getattr(state, "goal", None)
+    reranked = state.reranked or []
+    contacts = state.verified_contacts or []
+    query = state.query or "Research Query"
+    goal = state.goal
 
     # Deduplicate findings & contacts before synthesis
     unique_reranked = _deduplicate_findings(reranked)
@@ -123,13 +122,12 @@ def synthesizer_node(state: State) -> dict:
         return {"report": empty_report}
 
     raw = mid_llm.generate(
-        prompt=f"""Write an executive research brief in natural prose paragraphs with subheadings based on the findings below.
+        prompt=f"""Write an executive research brief based on the verified findings below.
 
         RULES:
-        1. Do NOT use bullet points for every sentence. Write structured, readable paragraphs with clear headings and subheadings.
-        2. Do NOT repeat or duplicate any sentence or claim.
-        3. Do NOT output code snippets unless specifically requested in the prompt.
-        4. Group analysis into 2-4 logical thematic sections (e.g., 'Market Overview', 'Technical Infrastructure', 'Strategy').
+        1. Write in structured prose paragraphs with clear subheadings — not bullet lists.
+        2. Each fact should appear exactly once across the entire brief. Before writing a claim, check whether you've already covered it under a different heading.
+        3. Organize findings into exactly {config.MIN_SECTIONS}-{config.MAX_SECTIONS} thematic sections, grouped by subject (e.g. "Market Position", "Technical Stack", "Hiring Signals") — not by which researcher found them.
 
         Original Request: "{query}"
         Goal: "{goal or 'general'}"
@@ -143,55 +141,37 @@ def synthesizer_node(state: State) -> dict:
         response_model=SynthesizerOutput,
     )
 
-    summary = getattr(raw, "executive_summary", "") or "Executive summary compiled from verified findings."
-    sections = getattr(raw, "sections", []) or []
-    rec_name = getattr(raw, "recommended_contact_name", "")
-    rec_reason = getattr(raw, "recommended_contact_reason", "") or "Selected based on role relevance."
 
-    findings_by_theme = {}
-    for sec in sections:
-        title = getattr(sec, "heading", None) or getattr(sec, "theme_title", "Analysis Section")
-        findings_by_theme[title] = [sec.paragraph]
+    findings_by_theme = {sec.heading: [sec.paragraph] for sec in raw.sections}
 
     rec_contact = None
-    if rec_name and unique_contacts:
+    if raw.recommended_contact_name and unique_contacts:
         for c in unique_contacts:
-            c_name = getattr(c, "name", "") or (c.get("name") if isinstance(c, dict) else "")
-            if c_name and rec_name.lower() in c_name.lower():
+            if c.name and raw.recommended_contact_name.lower() in c.name.lower():
                 rec_contact = c
                 break
     if not rec_contact and unique_contacts:
         rec_contact = unique_contacts[0]
 
     report = Report(
-        summary=summary,
+        summary=raw.executive_summary,
         findings_by_theme=findings_by_theme,
         contacts=unique_contacts,
         citations=unique_reranked,
         recommended_contact=rec_contact,
-        recommended_contact_reason=rec_reason if rec_contact else None,
+        recommended_contact_reason=raw.recommended_contact_reason if rec_contact else None,
     )
 
     filepath = _save_report_to_disk(report, query, sections)
 
-    return {"report": report}
+    return {"report": report, "report_filepath": filepath}
 
 
 def _format_findings(findings) -> str:
-    lines = []
-    for idx, f in enumerate(findings, 1):
-        claim_text = getattr(f, "claim", None) or (f.get("claim") if isinstance(f, dict) else str(f))
-        lines.append(f"{idx}. {claim_text}")
-    return "\n".join(lines)
+    return "\n".join(f"{idx}. {f.claim}" for idx, f in enumerate(findings, 1))
 
 
 def _format_contacts(contacts) -> str:
     if not contacts:
         return "(none found)"
-    lines = []
-    for c in contacts:
-        name = getattr(c, "name", "") or (c.get("name") if isinstance(c, dict) else "Unknown")
-        role = getattr(c, "role", "") or (c.get("role") if isinstance(c, dict) else "Executive")
-        email = getattr(c, "email", "") or (c.get("email") if isinstance(c, dict) else "N/A")
-        lines.append(f"- {name} ({role}) — Email: {email}")
-    return "\n".join(lines)
+    return "\n".join(f"- {c.name} ({c.role or 'Executive'}) — Email: {c.email or 'N/A'}" for c in contacts)
