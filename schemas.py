@@ -105,11 +105,7 @@ class JobInput(BaseModel):
 
 class JobRequest(BaseModel):
     query: str = Field(..., description="Prompt to investigate")
-    goal: str | None = Field(
-        default=None,
-        description="Optional goal for target outreach or synthesis focus",
-    )
-
+    goal: str | None = Field(default=None, description="Optional goal; ignored if a default goal is configured")
 
 class JobResponse(BaseModel):
     job_id: str
@@ -120,3 +116,4 @@ class ApprovalRequest(BaseModel):
     approved: bool = Field(..., description="True to approve & send via Gmail, False to discard")
     to_email: str | None = Field(default=None, description="Target recipient email address")
     recipient_name: str | None = Field(default=None, description="Recipient full name")
+

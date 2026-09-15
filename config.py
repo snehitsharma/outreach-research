@@ -15,4 +15,6 @@ class Config:
     REPRIORITIZE_PENALTY_WEIGHT = 0.7   # downweight, don't fully trust a resolved/contested claim
 
     FOLLOW_UP_DELAY_DAYS = 3 #followup.py
+
+    GOAL: str = "" 
 config = Config()

@@ -63,9 +63,8 @@ class GeminiClient:
         return response_model.model_construct()
 
 
-cheap_llm = GeminiClient(os.environ.get("GEMINI_MODEL_CHEAP", "gemini-1.5-flash"))
+light_llm = GeminiClient(os.environ.get("GEMINI_MODEL_CHEAP", "gemini-1.5-flash"))
 mid_llm = GeminiClient(os.environ.get("GEMINI_MODEL_MID", "gemini-1.5-flash"))
 strong_llm = GeminiClient(os.environ.get("GEMINI_MODEL_STRONG", "gemini-1.5-pro"))
 
-# Standard alias for backward compatibility.
-three_tier_llm = cheap_llm
+

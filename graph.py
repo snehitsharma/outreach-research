@@ -1,6 +1,3 @@
-# ============================================================
-# graph.py — LangGraph Pipeline Architecture with Telemetry
-# ============================================================
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import Send

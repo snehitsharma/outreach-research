@@ -6,20 +6,28 @@ import operator
 from schemas import Contact, Finding, Penalty, Report, DraftItem
 
 
+class SanitizeMeta(BaseModel):
+    was_truncated: bool = False
+    injection_flagged: bool = False
+
 class State(BaseModel):
     model_config = ConfigDict(extra="allow")
-
-    job_id: str | None = None
+    #input and sanitize
+    job_id: str 
     raw_query: str
+
+    #guardrail
     query: str = ""
-    goal: str | None = None
+    goal: str 
     is_sales_outreach: bool = True
+
+    sanitize_meta: dict = {}
 
     guardrail_passed: bool = False
     guardrail_reason: str | None = None
 
     retry_count: int = 0
-    _sanitize_meta: dict = {}
+    
 
     planner_list: list[str] = []
     findings: Annotated[list[Finding], operator.add] = []
@@ -43,4 +51,4 @@ class State(BaseModel):
             job_id=job_id,
             raw_query=raw_query,
             goal=goal,
-        ).model_dump()
+        )
