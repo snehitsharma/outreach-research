@@ -62,6 +62,7 @@ class Contact(SourcedItem):
     role: str | None = None
     email: str | None = None
     phone: str | None = None
+    company: str | None = None
 
 class Penalty(BaseModel):
     id: str                          # references a Finding.id or Contact.id

@@ -25,6 +25,8 @@ class State(BaseModel):
 
     guardrail_passed: bool = False
     guardrail_reason: str | None = None
+    contacts_enriched: bool = False
+    findings_verified: bool = False
 
     retry_count: int = 0
     
@@ -33,6 +35,12 @@ class State(BaseModel):
     findings: Annotated[list[Finding], operator.add] = []
     contacts: Annotated[list[Contact], operator.add] = []
     penalties: Annotated[list[Penalty], operator.add] = []
+
+    #verifier.py
+    verified_findings: list[Finding] = []
+    verified_contacts: list[Contact] = []
+
+    
     resolved_penalties: Annotated[list[Penalty], operator.add] = []
     reranked: list[Finding] = []
     report: Report | None = None

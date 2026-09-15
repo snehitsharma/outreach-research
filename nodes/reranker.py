@@ -1,6 +1,3 @@
-# ============================================================
-# nodes/reranker.py
-# ============================================================
 
 from state import State
 from schemas import Finding, ResolverDecision, VerifierStatus

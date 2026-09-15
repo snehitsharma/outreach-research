@@ -1,6 +1,4 @@
-# ============================================================
-# nodes/resolver.py
-# ============================================================
+
 
 from state import State
 from schemas import Penalty, ResolverDecision, Contact
@@ -22,39 +20,35 @@ class ContactsExtraction(BaseModel):
 
 def resolver_node(state: State) -> dict:
 
-    penalties = getattr(state, "penalties", []) or []
+    penalties = state.penalties or []
+    next_retry_count = state.retry_count + 1
 
     if not penalties:
-        # No penalties to resolve — but ensure we still surface contacts if missing
-        contacts = getattr(state, "contacts", []) or []
+        contacts = state.contacts or []
         if not _contacts_valid(contacts):
             found = _extract_contacts_from_findings(state) or _search_and_scrape_contacts(state)
-            return {"resolved_penalties": [], "contacts": found}
-        return {"resolved_penalties": []}
+            return {"resolved_penalties": [], "contacts": found, "retry_count": next_retry_count}
+        return {"resolved_penalties": [], "retry_count": next_retry_count}
 
-    # Prioritize which flagged items are worth the extra pass —
-    # coverage gaps and contradictions first, low-relevance noise last
     priority_order = {"missing_expected": 0, "contradicted": 1, "unsupported": 2, "low_relevance": 3}
-    ranked = sorted(penalties, key=lambda p: priority_order.get(getattr(p.rejection_reason, "value", ""), 99))
+    ranked = sorted(penalties, key=lambda p: priority_order.get(p.rejection_reason.value, 99))
     to_resolve = ranked[: config.MAX_PENALTIES_TO_RESOLVE]
     skipped = ranked[config.MAX_PENALTIES_TO_RESOLVE :]
 
-    resolved = []
-    for penalty in to_resolve:
-        resolved.append(_resolve_one(penalty, state))
+    resolved = [_resolve_one(penalty, state) for penalty in to_resolve]
 
     # Anything past the cap gets auto-discarded — no budget left to investigate
     for penalty in skipped:
         penalty.resolver_decision = ResolverDecision.DISCARD
         resolved.append(penalty)
 
-    # If contacts are missing or appear corrupted, attempt to extract from findings
-    contacts = getattr(state, "contacts", []) or []
+    contacts = state.contacts or []
     if not _contacts_valid(contacts):
         found = _extract_contacts_from_findings(state) or _search_and_scrape_contacts(state)
-        return {"resolved_penalties": resolved, "contacts": found}
+        return {"resolved_penalties": resolved, "contacts": found, "retry_count": next_retry_count}
 
-    return {"resolved_penalties": resolved}
+    return {"resolved_penalties": resolved, "retry_count": next_retry_count}
+
 
 
 def _resolve_one(penalty: Penalty, state: State) -> Penalty:

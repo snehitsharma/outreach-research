@@ -9,6 +9,7 @@ from nodes.sanitize import sanitize_node
 from nodes.guardrail import guardrail_node
 from nodes.planner import planner_node
 from nodes.researcher import researcher_node
+from nodes.contact_enricher import contact_enrichment_node
 from nodes.verifier import verifier_node
 from nodes.resolver import resolver_node
 from nodes.reranker import reranker_node
@@ -28,30 +29,19 @@ def build_graph():
     # Guardrail check
     graph.add_node("guardrail", guardrail_node)
 
-    def route_after_guardrail(state: State) -> str:
-        passed = state.get("guardrail_passed", False) if isinstance(state, dict) else getattr(state, "guardrail_passed", False)
-        return "planner" if passed else END
-
-    graph.add_conditional_edges("guardrail", route_after_guardrail, ["planner", END])
+    graph.add_conditional_edges(
+    "guardrail",
+    lambda state: "planner" if state.guardrail_passed else END,
+    ["planner", END],
+    )
 
     # Research planning & fan-out
     graph.add_node("planner", planner_node)
 
     def fan_out_researchers(state: State) -> list[Send]:
-        if isinstance(state, dict):
-            planner_list = state.get("planner_list") or []
-            query = state.get("query", "")
-            goal = state.get("goal")
-            job_id = state.get("job_id")
-        else:
-            planner_list = getattr(state, "planner_list", []) or []
-            query = getattr(state, "query", "")
-            goal = getattr(state, "goal", None)
-            job_id = getattr(state, "job_id", None)
-
         return [
-            Send("researcher", {"angle": angle, "query": query, "goal": goal, "job_id": job_id})
-            for angle in planner_list
+            Send("researcher", {"angle": angle, "query": state.query, "goal": state.goal, "job_id": state.job_id})
+            for angle in state.planner_list or []
         ]
 
     graph.add_conditional_edges("planner", fan_out_researchers, ["researcher"])
@@ -63,17 +53,25 @@ def build_graph():
     graph.add_node("verifier", verifier_node)
 
     def route_after_verifier(state: State) -> str:
-        penalties = getattr(state, "penalties", None)
-        retry_count = getattr(state, "retry_count", 0)
-        if penalties and retry_count < config.MAX_RETRY_ROUNDS:
+        if state.penalties and state.retry_count < config.MAX_RETRY_ROUNDS:
             return "resolver"
+        if state.is_sales_outreach:
+            return "contact_enrichment"
         return "reranker"
 
-    graph.add_conditional_edges("verifier", route_after_verifier, ["resolver", "reranker"])
+
+    graph.add_conditional_edges(
+        "verifier",
+        route_after_verifier,
+        ["resolver", "contact_enrichment",  "reranker"],
+    )
+
+    graph.add_node("contact_enrichment", contact_enrichment_node)
+    graph.add_edge("contact_enrichment","reranker" )
 
     # Resolution, ranking & synthesis
     graph.add_node("resolver", resolver_node)
-    graph.add_edge("resolver", "reranker")
+    graph.add_edge("resolver", "verifier")
 
     graph.add_node("reranker", reranker_node)
     graph.add_edge("reranker", "synthesizer")
