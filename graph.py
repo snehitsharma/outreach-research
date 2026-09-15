@@ -1,6 +1,7 @@
 
 from langgraph.graph import StateGraph, END
-from langgraph.types import Send
+from langgraph.types import Send, interrupt
+from langgraph.checkpoint.memory import MemorySaver
 
 from config import config
 from state import State
@@ -88,12 +89,23 @@ def build_graph():
     graph.add_node("outreach_drafter", outreach_drafter_node)
 
     def route_after_outreach(state: State) -> str:
-        drafts = getattr(state, "drafts", {}) or {}
-        return "hitl_wait" if drafts.get("outreach") else END
+        return "hitl_wait" if state.drafts.get("outreach") else END
+
 
     graph.add_conditional_edges("outreach_drafter", route_after_outreach, ["hitl_wait", END])
 
-    graph.add_node("hitl_wait", lambda state: state)
-    graph.add_conditional_edges("hitl_wait", lambda state: END, [END])
+    def hitl_wait_node(state: State) -> dict:
+        decision = interrupt({
+            "report_summary": state.report.summary if state.report else None,
+            "drafts": {
+                "outreach": [d.model_dump() for d in state.drafts.get("outreach", [])],
+            },
+            "message": "Review the outreach draft and approve or decline.",
+        })
+        return {"hitl_approved": decision.get("approved")}
 
-    return graph.compile()
+    graph.add_node("hitl_wait",hitl_wait_node )
+    graph.add_edge("hitl_wait", END)
+
+    checkpointer = MemorySaver()
+    return graph.compile(checkpointer=checkpointer)

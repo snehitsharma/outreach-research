@@ -14,17 +14,16 @@ class OutreachDraft(BaseModel):
 
 
 def outreach_drafter_node(state: State) -> dict:
-    """LangGraph node: generates initial outreach email draft based on recommended target contact."""
-    job_id = state.get("job_id") if isinstance(state, dict) else getattr(state, "job_id", None)
-    report = state.get("report") if isinstance(state, dict) else getattr(state, "report", None)
-    contacts = (state.get("contacts") or []) if isinstance(state, dict) else (getattr(state, "contacts", []) or [])
+    """Generates initial outreach email draft based on recommended target contact."""
+    report = state.report
+    contacts = state.verified_contacts or []
 
     if not report or not contacts:
-        return {"drafts": {"outreach": []}}
+        return {"drafts": {"outreach": [], "follow_up": []}}
 
-    target_contact = getattr(report, "recommended_contact", None) or contacts[0]
-    query = state.get("query", "") if isinstance(state, dict) else getattr(state, "query", "")
-    goal = state.get("goal") if isinstance(state, dict) else getattr(state, "goal", None)
+    target_contact = report.recommended_contact or contacts[0]
+    query = state.query
+    goal = state.goal
 
     result = mid_llm.generate(
         prompt=(
@@ -34,11 +33,11 @@ def outreach_drafter_node(state: State) -> dict:
         response_model=OutreachDraft,
     )
 
-    subject = getattr(result, "subject", "") or f"Re: {query or 'Outreach'}"
-    body = getattr(result, "body", "") or f"Hi {target_contact.name},\n\nI noticed your work as {target_contact.role or 'leader'} and wanted to connect regarding {query}."
+    subject = result.subject or f"Re: {query or 'Outreach'}"
+    body = result.body or f"Hi {target_contact.name},\n\nI noticed your work as {target_contact.role or 'leader'} and wanted to connect regarding {query}."
     draft_text = f"Subject: {subject}\n\n{body}"
 
-    to_email = getattr(target_contact, "email", None)
+    to_email = target_contact.email
     gmail_meta = {}
     if to_email:
         try:
@@ -46,30 +45,25 @@ def outreach_drafter_node(state: State) -> dict:
         except Exception:
             gmail_meta = {}
 
-    return {
-        "drafts": {
-            "outreach": [{
-                "kind": "outreach",
-                "draft_text": draft_text,
-                "subject": subject,
-                "body": body,
-                "to_email": to_email,
-                "recipient_name": getattr(target_contact, "name", None),
-                "gmail_draft_id": gmail_meta.get("draft_id"),
-                "gmail_message_id": gmail_meta.get("message_id"),
-                "gmail_thread_id": gmail_meta.get("thread_id"),
-                "approved": None,
-            }]
-        }
-    }
+    draft = DraftItem(
+        kind="outreach",
+        subject=subject,
+        body=body,
+        draft_text=draft_text,
+        to_email=to_email,
+        to_name=target_contact.name,
+        gmail_draft_id=gmail_meta.get("draft_id"),
+        gmail_message_id=gmail_meta.get("message_id"),
+        gmail_thread_id=gmail_meta.get("thread_id"),
+        approved=None,
+    )
+
+    return {"drafts": {"outreach": [draft], "follow_up": []}}
 
 
 def draft_followup(state: State) -> dict:
-    """Generates a follow-up draft for pending follow-up schedules."""
-    job_id = state.get("job_id") if isinstance(state, dict) else getattr(state, "job_id", None)
-    drafts = (state.get("drafts") or {}) if isinstance(state, dict) else (getattr(state, "drafts", {}) or {})
-    outreach_items = drafts.get("outreach", [])
-    prior = next((d.get("draft_text") for d in outreach_items if isinstance(d, dict) and d.get("approved") is True), None)
+    outreach_items = state.drafts.get("outreach", [])
+    prior = next((d.draft_text for d in outreach_items if d.approved is True), None)
 
     if not prior:
         return {"drafts": {"follow_up": []}}
@@ -79,11 +73,11 @@ def draft_followup(state: State) -> dict:
         response_model=OutreachDraft,
     )
 
-    subject = getattr(result, "subject", "") or "Following up on outreach"
-    body = getattr(result, "body", "") or "Hi, following up on our previous note to see if you have any questions!"
+    subject = result.subject or "Following up on outreach"
+    body = result.body or "Hi, following up on our previous note to see if you have any questions!"
     followup_text = f"Subject: {subject}\n\n{body}"
 
-    to_email = outreach_items[0].get("to_email") if outreach_items and isinstance(outreach_items[0], dict) else None
+    to_email = outreach_items[0].to_email if outreach_items else None
 
     gmail_meta = {}
     if to_email:
@@ -92,18 +86,16 @@ def draft_followup(state: State) -> dict:
         except Exception:
             gmail_meta = {}
 
-    return {
-        "drafts": {
-            "follow_up": [{
-                "kind": "follow_up",
-                "draft_text": followup_text,
-                "subject": subject,
-                "body": body,
-                "to_email": to_email,
-                "gmail_draft_id": gmail_meta.get("draft_id"),
-                "gmail_message_id": gmail_meta.get("message_id"),
-                "gmail_thread_id": gmail_meta.get("thread_id"),
-                "approved": None,
-            }]
-        }
-    }
+    draft = DraftItem(
+        kind="follow_up",
+        subject=subject,
+        body=body,
+        draft_text=followup_text,
+        to_email=to_email,
+        gmail_draft_id=gmail_meta.get("draft_id"),
+        gmail_message_id=gmail_meta.get("message_id"),
+        gmail_thread_id=gmail_meta.get("thread_id"),
+        approved=None,
+    )
+
+    return {"drafts": {"follow_up": [draft]}}

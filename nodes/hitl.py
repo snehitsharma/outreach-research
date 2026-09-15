@@ -1,64 +1,45 @@
-# ============================================================
 # nodes/hitl.py — Human-in-the-Loop Review Payload & Utilities
-# ============================================================
-
 from gmail_mcp_client import gmail_client
 
 
-def get_pending_review(state) -> dict | None:
-    """Returns the draft item currently awaiting human review from state."""
-    values = state if isinstance(state, dict) else getattr(state, "values", None) or state
-    drafts = values.get("drafts") if isinstance(values, dict) else getattr(values, "drafts", {})
+def get_pending_review(state_values) -> dict | None:
+    """Returns the draft item currently awaiting human review, from a state snapshot's values."""
+    drafts = state_values.drafts or {}
 
     for kind in ("follow_up", "outreach"):
-        items = drafts.get(kind, []) if isinstance(drafts, dict) else getattr(drafts, kind, [])
-        for item in items:
-            approved = item.get("approved") if isinstance(item, dict) else getattr(item, "approved", None)
-            if approved is None:
-                draft_text = item.get("draft_text") if isinstance(item, dict) else getattr(item, "draft_text", None)
-                body = item.get("body") if isinstance(item, dict) else getattr(item, "body", None)
-                to_email = item.get("to_email") if isinstance(item, dict) else getattr(item, "to_email", None)
-                recipient_name = item.get("recipient_name") if isinstance(item, dict) else getattr(item, "recipient_name", None)
+        for item in drafts.get(kind, []):
+            if item.approved is None:
                 return {
                     "draft_type": kind,
-                    "draft": draft_text or body or "",
-                    "to_email": to_email,
-                    "recipient_name": recipient_name,
+                    "draft": item.draft_text or item.body or "",
+                    "to_email": item.to_email,
+                    "to_name": item.to_name,
                 }
     return None
 
 
-def get_human_review_payload(state) -> dict | None:
+def get_human_review_payload(state_values) -> dict | None:
     """
     Formats the complete approval bundle for human review prior to sending:
     - Full structured report
-    - List of extracted contacts
-    - Target contact recommendation + explicit reason (who & why)
+    - List of verified contacts
+    - Target contact recommendation + reason
     - Proposed email draft
     """
-    values = state if isinstance(state, dict) else getattr(state, "values", None) or state
-    if isinstance(values, dict):
-        report = values.get("report")
-        contacts = values.get("contacts") or []
-        drafts = values.get("drafts") or {}
-    else:
-        report = getattr(values, "report", None)
-        contacts = getattr(values, "contacts", None) or []
-        drafts = getattr(values, "drafts", {}) or {}
+    report = state_values.report
+    contacts = state_values.verified_contacts or []
+    drafts = state_values.drafts or {}
 
-    outreach_items = drafts.get("outreach") if isinstance(drafts, dict) else getattr(drafts, "outreach", [])
+    outreach_items = drafts.get("outreach", [])
     if not outreach_items:
         return None
 
-    draft_item = outreach_items[0] if isinstance(outreach_items, list) and outreach_items else {}
-    if isinstance(draft_item, dict) and draft_item.get("approved") is not None:
+    draft_item = outreach_items[0]
+    if draft_item.approved is not None:
         return None
 
-    rec_contact = None
-    rec_reason = None
-    if report:
-        rec_contact = getattr(report, "recommended_contact", None) or (report.get("recommended_contact") if isinstance(report, dict) else None)
-        rec_reason = getattr(report, "recommended_contact_reason", None) or (report.get("recommended_contact_reason") if isinstance(report, dict) else None)
+    rec_contact = report.recommended_contact if report else None
+    rec_reason = report.recommended_contact_reason if report else None
 
     return {
         "report": report,
@@ -69,28 +50,22 @@ def get_human_review_payload(state) -> dict | None:
         },
         "draft": {
             "type": "outreach",
-            "subject": draft_item.get("subject") if isinstance(draft_item, dict) else getattr(draft_item, "subject", None),
-            "body": draft_item.get("body") if isinstance(draft_item, dict) else getattr(draft_item, "body", None),
-            "to_email": draft_item.get("to_email") if isinstance(draft_item, dict) else getattr(draft_item, "to_email", None),
-            "recipient_name": draft_item.get("recipient_name") if isinstance(draft_item, dict) else getattr(draft_item, "recipient_name", None),
-            "gmail_draft_id": draft_item.get("gmail_draft_id") if isinstance(draft_item, dict) else getattr(draft_item, "gmail_draft_id", None),
-            "gmail_thread_id": draft_item.get("gmail_thread_id") if isinstance(draft_item, dict) else getattr(draft_item, "gmail_thread_id", None),
+            "subject": draft_item.subject,
+            "body": draft_item.body,
+            "to_email": draft_item.to_email,
+            "to_name": draft_item.to_name,
+            "gmail_draft_id": draft_item.gmail_draft_id,
+            "gmail_thread_id": draft_item.gmail_thread_id,
         },
     }
 
 
-def create_gmail_draft(state, to_email: str) -> str:
-    """Create a Gmail draft for the current draft using gmail_mcp_client."""
-    values = getattr(state, "values", None) or state
-    drafts = values.get("drafts") if isinstance(values, dict) else getattr(values, "drafts", {})
-    outreach = drafts.get("outreach") if isinstance(drafts, dict) else getattr(drafts, "outreach", [])
-
+def create_gmail_draft(state_values, to_email: str) -> str:
+    """Create a Gmail draft once a human has approved — called from the /approve route."""
+    outreach = state_values.drafts.get("outreach", [])
     if not outreach:
         return ""
 
-    item = outreach[0] if isinstance(outreach, list) and outreach else {}
-    subj = item.get("subject") if isinstance(item, dict) else getattr(item, "subject", "")
-    body = item.get("body") if isinstance(item, dict) else getattr(item, "body", "")
-
-    meta = gmail_client.create_draft(to_email=to_email, subject=subj, body=body)
+    item = outreach[0]
+    meta = gmail_client.create_draft(to_email=to_email, subject=item.subject, body=item.body)
     return meta.get("draft_id", "")

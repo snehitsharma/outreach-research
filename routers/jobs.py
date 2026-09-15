@@ -32,24 +32,18 @@ def _resolve_status(state: Any) -> str:
     return "processing"
 
 
-def _run_job(job_id: str, initial_state: dict, graph: Any) -> None:
+def _run_job(job_id: str, initial_state: State, graph: Any) -> None:
     job_statuses[job_id] = "running"
+    config = {"configurable": {"thread_id": job_id}}
     try:
-        state = graph.invoke(
-            initial_state,
-            config={
-                "run_name": "sales_outreach_job",
-                "metadata": {"job_id": job_id},
-            },
-        )
-        job_states[job_id] = state
-        resolved_status = _resolve_status(state)
-        if resolved_status == "awaiting_approval":
+        result = graph.invoke(initial_state, config=config)
+        snapshot = graph.get_state(config)
+        if snapshot.next:
+            job_states[job_id] = result
             job_statuses[job_id] = "awaiting_approval"
-        elif resolved_status == "rejected":
-            job_statuses[job_id] = "rejected"
         else:
-            job_statuses[job_id] = "completed"
+            job_states[job_id] = result
+            job_statuses[job_id] = _resolve_status(result)
     except Exception:
         job_statuses[job_id] = "failed"
 
@@ -142,51 +136,39 @@ def download_job_report(job_id: str):
     tags=["Outreach & HITL Approval"],
     summary="5. Approve or Discard Email Draft",
 )
-def approve_outreach(job_id: str, request: ApprovalRequest):
+def approve_outreach(job_id: str, request: ApprovalRequest, graph: Any = Depends(get_graph)):
     if job_statuses.get(job_id) != "awaiting_approval":
         raise HTTPException(status_code=400, detail="Job is not awaiting approval")
 
-    values = job_states.get(job_id)
-    if values is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+    config = {"configurable": {"thread_id": job_id}}
+    snapshot = graph.get_state(config)
+    if not snapshot or not snapshot.next:
+        raise HTTPException(status_code=404, detail="Job not found or not paused")
 
-    pending_review = get_pending_review(values)
+    pending_review = get_pending_review(snapshot.values)
     if not pending_review:
         raise HTTPException(status_code=400, detail="No draft awaiting approval for this job")
 
-    update_vals = {"hitl_approved": request.approved}
     send_meta = {}
-
     if request.approved:
         to_email = request.to_email or pending_review.get("to_email")
-        draft_text = pending_review.get("draft", "")
-        subject, _, body = draft_text.partition("\n\n")
-        subject = subject.replace("Subject: ", "").strip()
-
         if to_email:
             try:
-                send_meta = gmail_client.send_message(
-                    to_email=to_email,
-                    subject=subject or "Outreach",
-                    body=body or draft_text,
-                )
+                send_meta = create_gmail_draft(snapshot.values, to_email)
             except Exception:
                 send_meta = {}
 
-        update_vals["to_email"] = to_email
+    result = graph.invoke(
+        Command(resume={"approved": request.approved}),
+        config=config,
+    )
 
-    values.update(update_vals)
-    for draft in values.get("drafts", {}).get("outreach", []):
-        if isinstance(draft, dict) and draft.get("approved") is None:
-            draft["approved"] = request.approved
-            if update_vals.get("to_email"):
-                draft["to_email"] = update_vals["to_email"]
-
-    job_statuses[job_id] = "completed"
+    job_states[job_id] = result
+    job_statuses[job_id] = _resolve_status(result)
 
     return {
         "job_id": job_id,
         "status": "approved" if request.approved else "discarded",
-        "to_email": update_vals.get("to_email"),
+        "to_email": pending_review.get("to_email"),
         "gmail_message": send_meta,
     }

@@ -87,6 +87,7 @@ class DraftItem(BaseModel):
     body: str | None = None
     draft_text: str | None = None
     to_email: str | None = None
+    to_name: str | None = None
     gmail_draft_id: str | None = None
     gmail_message_id: str | None = None
     gmail_thread_id: str | None = None
