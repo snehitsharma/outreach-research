@@ -38,6 +38,7 @@
 <script>
 let currentJobId = null;
 let pollTimer = null;
+let eventSource = null;
 
 function apiUrl(path) {
   return document.getElementById("apiBase").value.replace(/\/$/, "") + path;
@@ -62,11 +63,38 @@ async function submitJob() {
     const data = await res.json();
     currentJobId = data.job_id;
     showStatus(`Job ${currentJobId} — status: ${data.status}`);
-    pollTimer = setInterval(pollStatus, 2000);
+    startStatusStream();
   } catch (err) {
     showStatus(`Error: ${err.message}`, true);
     document.getElementById("submitBtn").disabled = false;
   }
+}
+
+function startStatusStream() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource(apiUrl(`/jobs/${currentJobId}/events`));
+  eventSource.onmessage = async (event) => {
+    const data = JSON.parse(event.data);
+    if (data.error) {
+      eventSource.close();
+      startPollingFallback();
+      return;
+    }
+
+    showStatus(`Job ${currentJobId} — status: ${data.status}`);
+    if (data.status === "awaiting_approval" || ["completed", "complete_no_outreach", "rejected", "failed"].includes(data.status)) {
+      eventSource.close();
+      await pollStatus();
+    }
+  };
+  eventSource.onerror = () => {
+    eventSource.close();
+    startPollingFallback();
+  };
+}
+
+function startPollingFallback() {
+  if (!pollTimer) pollTimer = setInterval(pollStatus, 2000);
 }
 
 async function pollStatus() {

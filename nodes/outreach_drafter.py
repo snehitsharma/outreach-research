@@ -1,6 +1,4 @@
-# ============================================================
-# nodes/outreach_drafter.py — Telemetry Instrumented
-# ============================================================
+
 
 from pydantic import BaseModel
 from state import State
