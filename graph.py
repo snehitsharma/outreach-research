@@ -1,4 +1,6 @@
 
+from datetime import datetime, timedelta, timezone
+
 from langgraph.graph import StateGraph, END
 from langgraph.types import Send, interrupt
 from langgraph.checkpoint.memory import MemorySaver
@@ -102,7 +104,23 @@ def build_graph():
             },
             "message": "Review the outreach draft and approve or decline.",
         })
-        return {"hitl_approved": decision.get("approved")}
+        approved = decision.get("approved", False)
+        to_email = decision.get("to_email")
+        drafts = {kind: list(items) for kind, items in state.drafts.items()}
+
+        if to_email and drafts.get("outreach"):
+            drafts["outreach"][0] = drafts["outreach"][0].model_copy(update={"to_email": to_email})
+
+        follow_up_at = (
+            datetime.now(timezone.utc) + timedelta(days=config.FOLLOW_UP_DELAY_DAYS)
+            if approved
+            else None
+        )
+        return {
+            "drafts": drafts,
+            "hitl_approved": approved,
+            "follow_up_at": follow_up_at,
+        }
 
     graph.add_node("hitl_wait",hitl_wait_node )
     graph.add_edge("hitl_wait", END)

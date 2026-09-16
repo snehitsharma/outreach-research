@@ -67,4 +67,7 @@ light_llm = GeminiClient(os.environ.get("GEMINI_MODEL_CHEAP", "gemini-1.5-flash"
 mid_llm = GeminiClient(os.environ.get("GEMINI_MODEL_MID", "gemini-1.5-flash"))
 strong_llm = GeminiClient(os.environ.get("GEMINI_MODEL_STRONG", "gemini-1.5-pro"))
 
+# Backward-compatible alias used by the resolver node.
+three_tier_llm = light_llm
+
 

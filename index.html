@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Research & Outreach Agent</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  label { display: block; margin-top: 16px; font-weight: 600; font-size: 0.9rem; }
+  input, textarea { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; font-size: 0.95rem; }
+  button { margin-top: 16px; padding: 10px 18px; font-size: 0.95rem; cursor: pointer; }
+  #status { margin-top: 24px; padding: 12px; border-radius: 6px; background: #f4f4f4; font-size: 0.9rem; }
+  #result { margin-top: 20px; white-space: pre-wrap; }
+  .approve-btn { background: #1a7f37; color: white; border: none; }
+  .decline-btn { background: #c0392b; color: white; border: none; margin-left: 8px; }
+  #config { font-size: 0.8rem; color: #666; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+
+<h1>Research & Outreach Agent</h1>
+
+<div id="config">
+  API base: <input id="apiBase" value="http://127.0.0.1:8000" style="width:220px; display:inline-block;">
+</div>
+
+<label for="query">Query</label>
+<textarea id="query" rows="3" placeholder="e.g. Recruiters hiring backend engineers at fintech startups"></textarea>
+
+<label for="goal">Goal (optional)</label>
+<input id="goal" placeholder="e.g. outreach for a job application">
+
+<button id="submitBtn" onclick="submitJob()">Submit</button>
+
+<div id="status" style="display:none;"></div>
+<div id="result"></div>
+
+<script>
+let currentJobId = null;
+let pollTimer = null;
+
+function apiUrl(path) {
+  return document.getElementById("apiBase").value.replace(/\/$/, "") + path;
+}
+
+async function submitJob() {
+  const query = document.getElementById("query").value.trim();
+  const goal = document.getElementById("goal").value.trim();
+  if (!query) { alert("Enter a query first."); return; }
+
+  document.getElementById("submitBtn").disabled = true;
+  document.getElementById("result").innerHTML = "";
+  showStatus("Submitting job...");
+
+  try {
+    const res = await fetch(apiUrl("/jobs"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, goal: goal || null }),
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    currentJobId = data.job_id;
+    showStatus(`Job ${currentJobId} — status: ${data.status}`);
+    pollTimer = setInterval(pollStatus, 2000);
+  } catch (err) {
+    showStatus(`Error: ${err.message}`, true);
+    document.getElementById("submitBtn").disabled = false;
+  }
+}
+
+async function pollStatus() {
+  if (!currentJobId) return;
+  try {
+    const res = await fetch(apiUrl(`/jobs/${currentJobId}`));
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    showStatus(`Job ${currentJobId} — status: ${data.status}`);
+
+    if (data.status === "awaiting_approval") {
+      clearInterval(pollTimer);
+      renderApproval(data);
+      document.getElementById("submitBtn").disabled = false;
+    } else if (data.status === "complete_no_outreach" || data.status === "rejected" || data.status === "failed") {
+      clearInterval(pollTimer);
+      renderFinal(data);
+      document.getElementById("submitBtn").disabled = false;
+    }
+  } catch (err) {
+    showStatus(`Error polling: ${err.message}`, true);
+    clearInterval(pollTimer);
+    document.getElementById("submitBtn").disabled = false;
+  }
+}
+
+function showStatus(text, isError) {
+  const el = document.getElementById("status");
+  el.style.display = "block";
+  el.style.background = isError ? "#fdecea" : "#f4f4f4";
+  el.textContent = text;
+}
+
+function renderApproval(data) {
+  const draft = data.draft || {};
+  const report = data.report || {};
+  const html = `
+    <h2>Report</h2>
+    <p>${escapeHtml(report.summary || "(no summary)")}</p>
+    <a href="${apiUrl(`/jobs/${currentJobId}/report/download`)}" target="_blank">Download full report (.md)</a>
+
+    <h2>Draft Outreach Email</h2>
+    <p><strong>To:</strong> ${escapeHtml(draft.to_email || "unknown")} (${escapeHtml(draft.to_name || "")})</p>
+    <p><strong>Draft:</strong></p>
+    <div style="border:1px solid #ddd; padding:10px; border-radius:6px;">${escapeHtml(draft.draft || "")}</div>
+
+    <button class="approve-btn" onclick="respond(true)">Approve</button>
+    <button class="decline-btn" onclick="respond(false)">Decline</button>
+  `;
+  document.getElementById("result").innerHTML = html;
+}
+
+async function respond(approved) {
+  showStatus("Submitting decision...");
+  try {
+    const res = await fetch(apiUrl(`/jobs/${currentJobId}/approve`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved }),
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    showStatus(`Job ${currentJobId} — ${data.status}`);
+    document.getElementById("result").innerHTML = `<p>Final status: <strong>${escapeHtml(data.status)}</strong></p>`;
+  } catch (err) {
+    showStatus(`Error: ${err.message}`, true);
+  }
+}
+
+function renderFinal(data) {
+  const report = data.report || {};
+  let html = `<h2>Status: ${escapeHtml(data.status)}</h2>`;
+  if (data.reason) html += `<p>${escapeHtml(data.reason)}</p>`;
+  if (report.summary) {
+    html += `<h3>Report Summary</h3><p>${escapeHtml(report.summary)}</p>`;
+    html += `<a href="${apiUrl(`/jobs/${currentJobId}/report/download`)}" target="_blank">Download full report (.md)</a>`;
+  }
+  document.getElementById("result").innerHTML = html;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+
+</body>
+</html>

@@ -1,32 +1,33 @@
 import os
 import uuid
+import asyncio
+import json
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from dependencies import get_graph
 from gmail_mcp_client import gmail_client
-from nodes.hitl import get_human_review_payload, get_pending_review
+from nodes.hitl import get_human_review_payload, get_pending_review, create_gmail_draft
 from schemas import ApprovalRequest, JobRequest, JobResponse
 from state import State
+from langgraph.types import Command
 
 
 router = APIRouter()
-job_states: dict[str, dict] = {}
+job_states: dict[str, State] = {}
 job_statuses: dict[str, str] = {}
 
 
-def _resolve_status(state: Any) -> str:
-    values = state if isinstance(state, dict) else getattr(state, "values", None) or state
-
-    if not values.get("guardrail_passed", True) and values.get("guardrail_reason"):
+def _resolve_status(state: State) -> str:
+    if not state.guardrail_passed and state.guardrail_reason:
         return "rejected"
 
-    if get_pending_review(values):
+    if get_pending_review(state):
         return "awaiting_approval"
 
-    if values.get("report") and not (values.get("drafts") or {}).get("outreach"):
+    if state.report and not state.drafts.get("outreach"):
         return "complete_no_outreach"
 
     return "processing"
@@ -36,14 +37,11 @@ def _run_job(job_id: str, initial_state: State, graph: Any) -> None:
     job_statuses[job_id] = "running"
     config = {"configurable": {"thread_id": job_id}}
     try:
-        result = graph.invoke(initial_state, config=config)
+        raw_result = graph.invoke(initial_state, config=config)
+        result = State.model_validate(raw_result)
         snapshot = graph.get_state(config)
-        if snapshot.next:
-            job_states[job_id] = result
-            job_statuses[job_id] = "awaiting_approval"
-        else:
-            job_states[job_id] = result
-            job_statuses[job_id] = _resolve_status(result)
+        job_states[job_id] = result
+        job_statuses[job_id] = "awaiting_approval" if snapshot.next else _resolve_status(result)
     except Exception:
         job_statuses[job_id] = "failed"
 
@@ -88,8 +86,8 @@ def get_job_result(job_id: str):
 
     pending_review = get_pending_review(values)
 
-    if not values.get("guardrail_passed", True) and values.get("guardrail_reason"):
-        return {"job_id": job_id, "status": "rejected", "reason": values["guardrail_reason"]}
+    if not values.guardrail_passed and values.guardrail_reason:
+        return {"job_id": job_id, "status": "rejected", "reason": values.guardrail_reason}
 
     if pending_review:
         return {
@@ -97,14 +95,31 @@ def get_job_result(job_id: str):
             "status": "awaiting_approval",
             "review_payload": get_human_review_payload(values),
             "draft": pending_review,
-            "report": values.get("report"),
-            "all_contacts": values.get("contacts"),
+                "report": values.report,
+                "all_contacts": values.verified_contacts,
         }
 
-    if values.get("report") and not (values.get("drafts") or {}).get("outreach"):
-        return {"job_id": job_id, "status": "complete_no_outreach", "report": values["report"]}
+    if values.report and not values.drafts.get("outreach"):
+        return {"job_id": job_id, "status": "complete_no_outreach", "report": values.report}
 
     return {"job_id": job_id, "status": status}
+
+@router.get("/jobs/{job_id}/events")
+async def job_events(job_id: str):
+    async def event_stream():
+        last_status = None
+        while True:
+            current = job_statuses.get(job_id)
+            if current is None:
+                yield f"data: {json.dumps({'error': 'not found'})}\n\n"
+                break
+            if current != last_status:
+                yield f"data: {json.dumps({'job_id': job_id, 'status': current})}\n\n"
+                last_status = current
+            if current in ("completed", "failed", "rejected", "awaiting_approval", "complete_no_outreach"):
+                break
+            await asyncio.sleep(1)
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get(
@@ -113,22 +128,19 @@ def get_job_result(job_id: str):
     summary="4. Download Research Report File (.md)",
 )
 def download_job_report(job_id: str):
-    reports_dir = "reports"
-    if os.path.exists(reports_dir):
-        files = [
-            os.path.join(reports_dir, filename)
-            for filename in os.listdir(reports_dir)
-            if filename.endswith(".md")
-        ]
-        if files:
-            files.sort(key=os.path.getmtime, reverse=True)
-            return FileResponse(
-                path=files[0],
-                media_type="text/markdown",
-                filename=f"research_report_{job_id[:8]}.md",
-            )
+    values = job_states.get(job_id)
+    if values is None:
+        raise HTTPException(status_code=404, detail="Job not found")
 
-    raise HTTPException(status_code=404, detail="Report file not found")
+    filepath = values.get("report_filepath") if isinstance(values, dict) else getattr(values, "report_filepath", None)
+    if not filepath or not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Report file not found")
+
+    return FileResponse(
+        path=filepath,
+        media_type="text/markdown",
+        filename=f"research_report_{job_id[:8]}.md",
+    )
 
 
 @router.post(
@@ -149,26 +161,17 @@ def approve_outreach(job_id: str, request: ApprovalRequest, graph: Any = Depends
     if not pending_review:
         raise HTTPException(status_code=400, detail="No draft awaiting approval for this job")
 
-    send_meta = {}
-    if request.approved:
-        to_email = request.to_email or pending_review.get("to_email")
-        if to_email:
-            try:
-                send_meta = create_gmail_draft(snapshot.values, to_email)
-            except Exception:
-                send_meta = {}
-
-    result = graph.invoke(
-        Command(resume={"approved": request.approved}),
+    raw_result = graph.invoke(
+        Command(resume={"approved": request.approved, "to_email": request.to_email}),
         config=config,
     )
+    result = State.model_validate(raw_result)
 
     job_states[job_id] = result
-    job_statuses[job_id] = _resolve_status(result)
+    job_statuses[job_id] = "completed"
 
     return {
         "job_id": job_id,
         "status": "approved" if request.approved else "discarded",
-        "to_email": pending_review.get("to_email"),
-        "gmail_message": send_meta,
+        "to_email": request.to_email or pending_review.get("to_email"),
     }

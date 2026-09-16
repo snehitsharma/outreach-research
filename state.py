@@ -18,7 +18,7 @@ class State(BaseModel):
 
     #guardrail
     query: str = ""
-    goal: str 
+    goal: str | None = None
     is_sales_outreach: bool = True
 
     sanitize_meta: dict = {}

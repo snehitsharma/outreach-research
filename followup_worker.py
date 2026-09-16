@@ -8,28 +8,28 @@ from datetime import datetime, timezone
 
 from nodes.outreach_drafter import draft_followup
 from gmail_mcp_client import gmail_client
+from state import State
 
 
-def _draft_info_for(values):
-    drafts = values.get("drafts") or {} if isinstance(values, dict) else getattr(values, "drafts", {})
-    outreach = drafts.get("outreach", []) if isinstance(drafts, dict) else getattr(drafts, "outreach", [])
-    if outreach and isinstance(outreach, list):
+def _draft_info_for(state: State) -> dict:
+    outreach = state.drafts.get("outreach", [])
+    if outreach:
         item = outreach[0]
-        if isinstance(item, dict):
-            return {
-                "to_email": item.get("to_email"),
-                "thread_id": item.get("gmail_thread_id"),
-                "message_id": item.get("gmail_message_id"),
-            }
+        return {
+            "to_email": item.to_email,
+            "thread_id": item.gmail_thread_id,
+            "message_id": item.gmail_message_id,
+        }
+
     return {
-        "to_email": values.get("to_email") if isinstance(values, dict) else getattr(values, "to_email", None),
+        "to_email": None,
         "thread_id": None,
         "message_id": None,
     }
 
 
-def _reply_received(values: dict) -> bool:
-    info = _draft_info_for(values)
+def _reply_received(state: State) -> bool:
+    info = _draft_info_for(state)
     to_email = info.get("to_email")
     thread_id = info.get("thread_id")
     message_id = info.get("message_id")
@@ -40,32 +40,31 @@ def _reply_received(values: dict) -> bool:
     return gmail_client.check_for_reply(to_email=to_email, thread_id=thread_id, message_id=message_id)
 
 
-def check_followup_stop(values: dict) -> bool:
-    return _reply_received(values)
+def check_followup_stop(state: State) -> bool:
+    return _reply_received(state)
 
 
-def process_due_followups(states: dict[str, dict]):
+def process_due_followups(states: dict[str, State]):
     """Processes follow-ups in the current process-local job registry."""
     now = datetime.now(timezone.utc)
-    for thread_id, values in states.items():
-        follow_up_at = values.get("follow_up_at")
+    for thread_id, state in states.items():
+        follow_up_at = state.follow_up_at
         if not follow_up_at:
             continue
 
-        if isinstance(follow_up_at, str):
-            try:
-                follow_up_at = datetime.fromisoformat(follow_up_at)
-            except Exception:
-                continue
-
         if follow_up_at <= now:
-            if _reply_received(values):
+            if _reply_received(state):
                 print(f"[Worker] Thread {thread_id}: Recipient replied! Stopping follow-up sequence.")
-                values.update({"follow_up_at": None, "followup_stopped_reason": "recipient_replied"})
+                updates = {
+                    "follow_up_at": None,
+                    "followup_stopped_reason": "recipient_replied",
+                }
             else:
                 print(f"[Worker] Thread {thread_id}: Follow-up due. Creating follow-up draft.")
-                res = draft_followup(values)
-                values.update({"drafts": res.get("drafts"), "follow_up_at": None})
+                res = draft_followup(state)
+                updates = {"drafts": res.get("drafts"), "follow_up_at": None}
+
+            states[thread_id] = state.model_copy(update=updates)
 
 
 def run_daemon(poll_interval: int = 60):
@@ -79,14 +78,3 @@ def run_daemon(poll_interval: int = 60):
             print(f"[FollowupWorker] Error during poll cycle: {e}")
         time.sleep(poll_interval)
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Follow-up Scheduler Worker")
-    parser.add_argument("--once", action="store_true", help="Run a single poll pass and exit")
-    args = parser.parse_args()
-
-    if args.once:
-        from routers.jobs import job_states
-        process_due_followups(job_states)
-    else:
-        run_daemon()

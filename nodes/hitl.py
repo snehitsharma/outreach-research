@@ -3,7 +3,7 @@ from gmail_mcp_client import gmail_client
 
 
 def get_pending_review(state_values) -> dict | None:
-    """Returns the draft item currently awaiting human review, from a state snapshot's values."""
+   
     drafts = state_values.drafts or {}
 
     for kind in ("follow_up", "outreach"):
@@ -19,13 +19,7 @@ def get_pending_review(state_values) -> dict | None:
 
 
 def get_human_review_payload(state_values) -> dict | None:
-    """
-    Formats the complete approval bundle for human review prior to sending:
-    - Full structured report
-    - List of verified contacts
-    - Target contact recommendation + reason
-    - Proposed email draft
-    """
+   
     report = state_values.report
     contacts = state_values.verified_contacts or []
     drafts = state_values.drafts or {}
