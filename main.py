@@ -5,7 +5,7 @@ from graph import build_graph
 from routers.jobs import router as jobs_router
 from apscheduler.schedulers.background import BackgroundScheduler
 from followup_worker import process_due_followups
-from routers.jobs import job_states
+from routers.jobs import job_states, job_statuses
 
 
 
@@ -13,7 +13,7 @@ from routers.jobs import job_states
 app = FastAPI()
 app.state.graph = build_graph()
 scheduler = BackgroundScheduler()
-scheduler.add_job(lambda: process_due_followups(job_states), "interval", minutes=5)
+scheduler.add_job(lambda: process_due_followups(job_states, job_statuses), "interval", minutes=5)
 scheduler.start()
 
 

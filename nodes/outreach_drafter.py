@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel
 from state import State
+from schemas import DraftItem
 from llm_clients import mid_llm
 from gmail_mcp_client import gmail_client
 

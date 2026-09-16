@@ -152,14 +152,36 @@ def approve_outreach(job_id: str, request: ApprovalRequest, graph: Any = Depends
     if job_statuses.get(job_id) != "awaiting_approval":
         raise HTTPException(status_code=400, detail="Job is not awaiting approval")
 
+    state = job_states.get(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    pending_review = get_pending_review(state)
+    if not pending_review:
+        raise HTTPException(status_code=400, detail="No draft awaiting approval for this job")
+
+    # Follow-up drafts are produced by the background scheduler after the graph run
+    # for this job_id has already reached END, so there's no graph interrupt left to
+    # resume — resolve the decision directly against job_states, same job_id throughout.
+    if pending_review["draft_type"] == "follow_up":
+        followups = list(state.drafts.get("follow_up", []))
+        followups[0] = followups[0].model_copy(update={
+            "approved": request.approved,
+            **({"to_email": request.to_email} if request.to_email else {}),
+        })
+        job_states[job_id] = state.model_copy(update={"drafts": {**state.drafts, "follow_up": followups}})
+        job_statuses[job_id] = "completed"
+
+        return {
+            "job_id": job_id,
+            "status": "approved" if request.approved else "discarded",
+            "to_email": request.to_email or pending_review.get("to_email"),
+        }
+
     config = {"configurable": {"thread_id": job_id}}
     snapshot = graph.get_state(config)
     if not snapshot or not snapshot.next:
         raise HTTPException(status_code=404, detail="Job not found or not paused")
-
-    pending_review = get_pending_review(snapshot.values)
-    if not pending_review:
-        raise HTTPException(status_code=400, detail="No draft awaiting approval for this job")
 
     raw_result = graph.invoke(
         Command(resume={"approved": request.approved, "to_email": request.to_email}),

@@ -44,36 +44,50 @@ def check_followup_stop(state: State) -> bool:
     return _reply_received(state)
 
 
-def process_due_followups(states: dict[str, State]):
-    """Processes follow-ups in the current process-local job registry."""
+def process_due_followups(states: dict[str, State], statuses: dict[str, str]):
+    """Processes follow-ups in the current process-local job registry.
+
+    Reuses the same job_id end-to-end (no new job is created for the follow-up) —
+    the job just re-enters "awaiting_approval" so the existing /jobs/{id} and
+    /jobs/{id}/approve routes pick it back up, then finishes gracefully.
+    """
     now = datetime.now(timezone.utc)
-    for thread_id, state in states.items():
+    for job_id, state in states.items():
         follow_up_at = state.follow_up_at
-        if not follow_up_at:
+        if not follow_up_at or follow_up_at > now:
             continue
 
-        if follow_up_at <= now:
-            if _reply_received(state):
-                print(f"[Worker] Thread {thread_id}: Recipient replied! Stopping follow-up sequence.")
-                updates = {
-                    "follow_up_at": None,
-                    "followup_stopped_reason": "recipient_replied",
-                }
-            else:
-                print(f"[Worker] Thread {thread_id}: Follow-up due. Creating follow-up draft.")
-                res = draft_followup(state)
-                updates = {"drafts": res.get("drafts"), "follow_up_at": None}
+        # Always check for a reply (by to_email/thread_id/message_id) before
+        # drafting a follow-up — a reply means the sequence is done, no follow-up needed.
+        if _reply_received(state):
+            print(f"[Worker] Job {job_id}: Recipient replied! Stopping follow-up sequence.")
+            states[job_id] = state.model_copy(update={
+                "follow_up_at": None,
+                "followup_stopped_reason": "recipient_replied",
+            })
+            statuses[job_id] = "completed"
+            continue
 
-            states[thread_id] = state.model_copy(update=updates)
+        print(f"[Worker] Job {job_id}: Follow-up due. Creating follow-up draft.")
+        res = draft_followup(state)
+        new_followup_drafts = res.get("drafts", {}).get("follow_up", [])
+        merged_drafts = {**state.drafts, "follow_up": new_followup_drafts}
+
+        states[job_id] = state.model_copy(update={
+            "drafts": merged_drafts,
+            "follow_up_at": None,
+        })
+        # Same job_id re-enters the HITL cycle — no override, no new job.
+        statuses[job_id] = "awaiting_approval" if new_followup_drafts else "completed"
 
 
 def run_daemon(poll_interval: int = 60):
-    from routers.jobs import job_states
+    from routers.jobs import job_states, job_statuses
 
     print("[FollowupWorker] Starting process-local follow-up worker...")
     while True:
         try:
-            process_due_followups(job_states)
+            process_due_followups(job_states, job_statuses)
         except Exception as e:
             print(f"[FollowupWorker] Error during poll cycle: {e}")
         time.sleep(poll_interval)

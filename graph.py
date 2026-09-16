@@ -108,8 +108,11 @@ def build_graph():
         to_email = decision.get("to_email")
         drafts = {kind: list(items) for kind, items in state.drafts.items()}
 
-        if to_email and drafts.get("outreach"):
-            drafts["outreach"][0] = drafts["outreach"][0].model_copy(update={"to_email": to_email})
+        if drafts.get("outreach"):
+            draft_update = {"approved": approved}
+            if to_email:
+                draft_update["to_email"] = to_email
+            drafts["outreach"][0] = drafts["outreach"][0].model_copy(update=draft_update)
 
         follow_up_at = (
             datetime.now(timezone.utc) + timedelta(days=config.FOLLOW_UP_DELAY_DAYS)

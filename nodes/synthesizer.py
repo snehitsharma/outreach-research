@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from state import State
 from schemas import Report
 from llm_clients import mid_llm
-from pydantic import BaseModel, Field, config
+from pydantic import BaseModel, Field
 
 
 class ThemeNarrative(BaseModel):
@@ -119,7 +119,7 @@ def synthesizer_node(state: State) -> dict:
             recommended_contact_reason="First contact selected by default." if unique_contacts else "No contacts available.",
         )
         filepath = _save_report_to_disk(empty_report, query, [])
-        return {"report": empty_report}
+        return {"report": empty_report, "report_filepath": filepath}
 
     raw = mid_llm.generate(
         prompt=f"""Write an executive research brief based on the verified findings below.
@@ -127,7 +127,8 @@ def synthesizer_node(state: State) -> dict:
         RULES:
         1. Write in structured prose paragraphs with clear subheadings — not bullet lists.
         2. Each fact should appear exactly once across the entire brief. Before writing a claim, check whether you've already covered it under a different heading.
-        3. Organize findings into exactly {config.MIN_SECTIONS}-{config.MAX_SECTIONS} thematic sections, grouped by subject (e.g. "Market Position", "Technical Stack", "Hiring Signals") — not by which researcher found them.
+        3. Organize findings into thematic sections, grouped by subject (e.g. "Market Position", "Technical Stack", "Hiring Signals") — not by which researcher found them.
+        4. When picking recommended_contact_name, prefer whoever has the most seniority/decision-making authority for the stated goal and an actual email on file over one without; state that reasoning in recommended_contact_reason. If no contact stands out, leave recommended_contact_name blank rather than guessing.
 
         Original Request: "{query}"
         Goal: "{goal or 'general'}"
@@ -162,7 +163,7 @@ def synthesizer_node(state: State) -> dict:
         recommended_contact_reason=raw.recommended_contact_reason if rec_contact else None,
     )
 
-    filepath = _save_report_to_disk(report, query, sections)
+    filepath = _save_report_to_disk(report, query, raw.sections)
 
     return {"report": report, "report_filepath": filepath}
 

@@ -22,7 +22,7 @@ def contact_enrichment_node(state: State) -> dict:
         seen_names.add(normalized_name)
 
         if not contact.email or contact.email == "N/A":
-            apollo_result = apollo_tool.run(name=contact.name, company="contact.company")
+            apollo_result = apollo_tool.run(name=contact.name, company=contact.company)
             contact.email = apollo_result.get("email")
             if not contact.role:
                 contact.role = apollo_result.get("title")

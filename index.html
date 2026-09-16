@@ -109,7 +109,7 @@ async function pollStatus() {
       clearInterval(pollTimer);
       renderApproval(data);
       document.getElementById("submitBtn").disabled = false;
-    } else if (data.status === "complete_no_outreach" || data.status === "rejected" || data.status === "failed") {
+    } else if (["completed", "complete_no_outreach", "rejected", "failed"].includes(data.status)) {
       clearInterval(pollTimer);
       renderFinal(data);
       document.getElementById("submitBtn").disabled = false;
