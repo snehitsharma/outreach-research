@@ -34,11 +34,6 @@ class ResolverDecision(str, Enum):
     DISCARD = "discard"
     REPRIORITIZE = "reprioritize"
 
-class Goal(str, Enum):
-    SALES = "sales"
-    JOB_SEARCH = "job_search"
-    GENERAL = "general"
-
 
 # ---------- Shared base — every sourced claim has these three things ----------
 
@@ -92,18 +87,9 @@ class DraftItem(BaseModel):
     gmail_message_id: str | None = None
     gmail_thread_id: str | None = None
     approved: bool | None = None
-    sent: bool = False
-    scheduled_for: str | None = None
-
 
 
 # ---------- Input / config ----------
-
-class JobInput(BaseModel):
-    raw_query: str
-    goal: Goal | None = None
-    pitch_context: str | None = None   # what's being sold / applied for, etc.
-
 
 class JobRequest(BaseModel):
     query: str = Field(..., description="Prompt to investigate")
@@ -117,5 +103,4 @@ class JobResponse(BaseModel):
 class ApprovalRequest(BaseModel):
     approved: bool = Field(..., description="True to approve & send via Gmail, False to discard")
     to_email: str | None = Field(default=None, description="Target recipient email address")
-    recipient_name: str | None = Field(default=None, description="Recipient full name")
 

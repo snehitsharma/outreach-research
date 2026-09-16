@@ -32,7 +32,6 @@ def verifier_node(state: State) -> dict:
                 snippet="",
                 rejection_reason=RejectionReason.MISSING_EXPECTED,
             )],
-            "findings_verified": True,
         }
 
 
@@ -105,7 +104,6 @@ def verifier_node(state: State) -> dict:
         "verified_findings": updated_findings,
         "verified_contacts": contacts,
         "penalties": new_penalties,
-        "findings_verified": True,
     }
 
 

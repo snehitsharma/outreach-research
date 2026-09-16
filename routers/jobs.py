@@ -38,6 +38,7 @@ def _run_job(job_id: str, initial_state: State, graph: Any) -> None:
     config = {"configurable": {"thread_id": job_id}}
     try:
         raw_result = graph.invoke(initial_state, config=config)
+        raw_result.pop("__interrupt__", None)
         result = State.model_validate(raw_result)
         snapshot = graph.get_state(config)
         job_states[job_id] = result
@@ -67,7 +68,7 @@ def trigger_job(
     job_statuses[job_id] = "pending"
     background_tasks.add_task(_run_job, job_id, initial_state, graph)
 
-    return JobResponse(job_id=job_id, status="pending")
+    return JobResponse(job_id=job_id, status="pending") 
 
 
 @router.get(
@@ -187,6 +188,7 @@ def approve_outreach(job_id: str, request: ApprovalRequest, graph: Any = Depends
         Command(resume={"approved": request.approved, "to_email": request.to_email}),
         config=config,
     )
+    raw_result.pop("__interrupt__", None)
     result = State.model_validate(raw_result)
 
     job_states[job_id] = result

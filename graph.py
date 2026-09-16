@@ -121,7 +121,6 @@ def build_graph():
         )
         return {
             "drafts": drafts,
-            "hitl_approved": approved,
             "follow_up_at": follow_up_at,
         }
 

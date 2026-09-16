@@ -7,7 +7,7 @@ def contact_enrichment_node(state: State) -> dict:
     contacts = state.verified_contacts or []
 
     if not state.is_sales_outreach or not contacts:
-        return {"verified_contacts": contacts, "contacts_enriched": True}
+        return {"verified_contacts": contacts}
 
     enriched_contacts = []
     seen_names = set()
@@ -29,7 +29,4 @@ def contact_enrichment_node(state: State) -> dict:
 
         enriched_contacts.append(contact)
 
-    return {
-        "verified_contacts": enriched_contacts,
-        "contacts_enriched": True,
-    }
+    return {"verified_contacts": enriched_contacts}

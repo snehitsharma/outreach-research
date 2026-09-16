@@ -11,7 +11,7 @@ class SanitizeMeta(BaseModel):
     injection_flagged: bool = False
 
 class State(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
     #input and sanitize
     job_id: str 
     raw_query: str
@@ -21,12 +21,10 @@ class State(BaseModel):
     goal: str | None = None
     is_sales_outreach: bool = True
 
-    sanitize_meta: dict = {}
+    sanitize_meta: SanitizeMeta = SanitizeMeta()
 
     guardrail_passed: bool = False
     guardrail_reason: str | None = None
-    contacts_enriched: bool = False
-    findings_verified: bool = False
 
     retry_count: int = 0
     
@@ -44,14 +42,15 @@ class State(BaseModel):
     resolved_penalties: Annotated[list[Penalty], operator.add] = []
     reranked: list[Finding] = []
     report: Report | None = None
+    report_filepath: str | None = None
 
     drafts: dict[str, list[DraftItem]] = {
         "outreach": [],
         "follow_up": [],
     }
 
-    hitl_approved: bool | None = None
     follow_up_at: datetime | None = None
+    followup_stopped_reason: str | None = None
 
     @classmethod
     def initial(cls, job_id: str, raw_query: str, goal: str | None = None) -> dict:
